@@ -1,0 +1,13 @@
+﻿services:
+  echo:
+    container_name: Echo
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Echo/Dockerfile
+    volumes:
+      - /var/log/brackeysbot/echo:/app/logs
+      - /etc/brackeysbot/echo:/app/data
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
