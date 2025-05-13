@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Timers;
 using DSharpPlus;
 using DSharpPlus.Entities;
@@ -18,7 +18,7 @@ internal sealed class VoiceService : BackgroundService
     private readonly ILogger<VoiceService> _logger;
     private readonly IConfiguration _configuration;
     private readonly DiscordClient _discordClient;
-    private readonly Timer _cleanupTimer = new(TimeSpan.FromSeconds(30));
+    private readonly Timer _cleanupTimer;
     private readonly ConcurrentDictionary<ulong, ulong> _userCreatedChannels = [];
 
     /// <summary>
@@ -32,6 +32,9 @@ internal sealed class VoiceService : BackgroundService
         _logger = logger;
         _configuration = configuration;
         _discordClient = discordClient;
+
+        int cleanupTimer = configuration.GetSection("global").GetSection("cleanup").Get<int>();
+        _cleanupTimer = new(TimeSpan.FromSeconds(cleanupTimer));
     }
 
     /// <summary>
