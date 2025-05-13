@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Timers;
 using DSharpPlus;
 using DSharpPlus.Entities;
@@ -50,8 +50,12 @@ internal sealed class VoiceService : BackgroundService
             throw new ArgumentNullException(nameof(member));
         }
 
+
         DiscordGuild guild = member.Guild;
-        DiscordChannel channel = await guild.CreateVoiceChannelAsync(member.Username, GetCategory(guild));
+        DiscordChannel? parent = GetCategory(guild);
+        int userLimit = _configuration.GetSection(guild.Id.ToString()).GetSection("user_limit").Get<int>();
+
+        DiscordChannel channel = await guild.CreateVoiceChannelAsync(member.Username, parent, user_limit: userLimit);
         _logger.LogInformation("Created voice channel {Channel} for user {User}", channel.Name, member.Username);
         _userCreatedChannels.TryAdd(channel.Id, member.Id);
         return channel;
