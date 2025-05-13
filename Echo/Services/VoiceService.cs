@@ -1,10 +1,12 @@
 ﻿using System.Collections.Concurrent;
+using System.Timers;
 using DSharpPlus;
 using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Timer = System.Timers.Timer;
 
 namespace Echo.Services;
 
@@ -16,6 +18,7 @@ internal sealed class VoiceService : BackgroundService
     private readonly ILogger<VoiceService> _logger;
     private readonly IConfiguration _configuration;
     private readonly DiscordClient _discordClient;
+    private readonly Timer _cleanupTimer = new(TimeSpan.FromSeconds(30));
     private readonly ConcurrentDictionary<ulong, ulong> _userCreatedChannels = [];
 
     /// <summary>
@@ -47,7 +50,6 @@ internal sealed class VoiceService : BackgroundService
         DiscordGuild guild = member.Guild;
         DiscordChannel channel = await guild.CreateVoiceChannelAsync(member.Username, GetCategory(guild));
         _logger.LogInformation("Created voice channel {Channel} for user {User}", channel.Name, member.Username);
-
         _userCreatedChannels.TryAdd(channel.Id, member.Id);
         return channel;
     }
@@ -134,10 +136,55 @@ internal sealed class VoiceService : BackgroundService
     }
 
     /// <inheritdoc />
+    public override Task StopAsync(CancellationToken cancellationToken)
+    {
+        _cleanupTimer.Elapsed -= OnCleanupTimerElapsed;
+        _discordClient.VoiceStateUpdated -= OnVoiceStateUpdated;
+        _cleanupTimer.Stop();
+        return base.StopAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _cleanupTimer.Elapsed += OnCleanupTimerElapsed;
         _discordClient.VoiceStateUpdated += OnVoiceStateUpdated;
+        _cleanupTimer.Start();
         return Task.CompletedTask;
+    }
+
+    private async void OnCleanupTimerElapsed(object? sender, ElapsedEventArgs e)
+    {
+        try
+        {
+            ulong[] channelIds = _userCreatedChannels.Keys.ToArray(); // defensively copy of keys
+            foreach (var channelId in channelIds)
+            {
+                try
+                {
+                    var channel = await _discordClient.GetChannelAsync(channelId);
+                    if (channel is null)
+                    {
+                        continue;
+                    }
+
+                    if (IsChannelEmpty(channel))
+                    {
+                        _logger.LogInformation("Deleting empty user-created voice channel {Channel}", channel);
+                        await channel.DeleteAsync();
+                        _userCreatedChannels.TryRemove(channel.Id, out _);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An error occurred trying to clean up {Id}", channelId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An error occurred during cleanup");
+        }
     }
 
     private async Task OnVoiceStateUpdated(DiscordClient sender, VoiceStateUpdateEventArgs args)
@@ -186,7 +233,7 @@ internal sealed class VoiceService : BackgroundService
 
         if (IsChannelEmpty(channel))
         {
-            _logger.LogInformation("Deleting empty user-created voice channel {Channel}", channel.Name);
+            _logger.LogInformation("Deleting empty user-created voice channel {Channel}", channel);
             await channel.DeleteAsync();
             _userCreatedChannels.TryRemove(channel.Id, out _);
         }
